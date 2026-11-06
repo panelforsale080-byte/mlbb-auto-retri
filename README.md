@@ -13,6 +13,12 @@ Files:
 
 ## Build
 
+### On GitHub (Actions)
+
+Push to `main` → **Actions** tab → latest **Build APK** run → download artifact **`mlbb-auto-retri-debug`** (contains the APK).
+
+### Local
+
 Requirements: **JDK 17+**, Android SDK (AGP will download components if missing).
 
 ```bash
