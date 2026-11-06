@@ -78,7 +78,7 @@ public final class RetriWatchService extends Service {
     }
 
     private File resolveDir() {
-        return RetriPreferences.resolveConfigDir(this);
+        return RetriPreferences.effectiveHandoffDir(this);
     }
 
     private boolean masterEnabled() {

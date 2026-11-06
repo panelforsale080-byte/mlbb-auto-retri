@@ -146,7 +146,7 @@ public class MainActivity extends Activity {
         if (pendingAnchorOverlay && canOverlay()) {
             pendingAnchorOverlay = false;
             AnchorOverlayService.start(this);
-            Toast.makeText(this, "Drag orange dot to spell → SET ANCHOR", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "Drag dot → menu SAVE", Toast.LENGTH_LONG).show();
         }
     }
 
@@ -169,7 +169,7 @@ public class MainActivity extends Activity {
             return;
         }
         AnchorOverlayService.start(this);
-        Toast.makeText(this, "Drag orange dot to spell → SET ANCHOR", Toast.LENGTH_LONG).show();
+        Toast.makeText(this, "Drag dot → menu SAVE", Toast.LENGTH_LONG).show();
     }
 
     private CheckBox mkCk(String label, LinearLayout shell) {
@@ -195,37 +195,36 @@ public class MainActivity extends Activity {
 
     private void saveAll() {
         try {
-            SharedPreferences p = RetriPreferences.prefs(this);
             float tx = Float.parseFloat(tapXEdit.getText().toString().trim());
             float ty = Float.parseFloat(tapYEdit.getText().toString().trim());
-            p.edit()
-                    .putString(RetriPreferences.PREF_PATH, pathEdit.getText().toString().trim())
-                    .putBoolean(RetriPreferences.PREF_MASTER, masterSw.isChecked())
-                    .putFloat(RetriPreferences.PREF_TAP_X, tx)
-                    .putFloat(RetriPreferences.PREF_TAP_Y, ty)
-                    .putBoolean(RetriPreferences.PREF_LORD, ckLord.isChecked())
-                    .putBoolean(RetriPreferences.PREF_TURTLE, ckTurtle.isChecked())
-                    .putBoolean(RetriPreferences.PREF_RED, ckRed.isChecked())
-                    .putBoolean(RetriPreferences.PREF_BLUE, ckBlue.isChecked())
-                    .putBoolean(RetriPreferences.PREF_CRAB, ckCrab.isChecked())
-                    .putBoolean(RetriPreferences.PREF_LITO, ckLito.isChecked())
-                    .apply();
-
-            File dir = RetriPreferences.resolveConfigDir(this);
-            ConfigWriter.write(
-                    dir,
-                    tx,
-                    ty,
-                    ckLord.isChecked(),
-                    ckTurtle.isChecked(),
-                    ckRed.isChecked(),
-                    ckBlue.isChecked(),
-                    ckCrab.isChecked(),
-                    ckLito.isChecked());
+            RetriPreferences.SaveResult r =
+                    RetriPreferences.saveFullConfigFromFields(
+                            this,
+                            pathEdit.getText().toString(),
+                            masterSw.isChecked(),
+                            tx,
+                            ty,
+                            ckLord.isChecked(),
+                            ckTurtle.isChecked(),
+                            ckRed.isChecked(),
+                            ckBlue.isChecked(),
+                            ckCrab.isChecked(),
+                            ckLito.isChecked());
             tapXEdit.setText(String.valueOf(tx));
             tapYEdit.setText(String.valueOf(ty));
-            Toast.makeText(this, "Saved → " + new File(dir, SharedPaths.CONFIG).getAbsolutePath(), Toast.LENGTH_LONG)
-                    .show();
+            if (r.ok) {
+                Toast.makeText(
+                                this,
+                                "Saved → " + new File(r.directory, SharedPaths.CONFIG).getAbsolutePath(),
+                                Toast.LENGTH_LONG)
+                        .show();
+            } else {
+                Toast.makeText(
+                                this,
+                                "Save failed: " + (r.error != null ? r.error : "?") + "\nTried: " + r.directory,
+                                Toast.LENGTH_LONG)
+                        .show();
+            }
         } catch (Throwable t) {
             Toast.makeText(this, "Save failed: " + t.getMessage(), Toast.LENGTH_LONG).show();
         }

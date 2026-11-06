@@ -15,21 +15,27 @@ import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
+import android.widget.Button;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import java.io.File;
+import java.util.Locale;
+
 /**
- * Floating draggable dot + SET ANCHOR — center of dot = spell tap. Small windows only (game stays touchable
- * elsewhere when {@link WindowManager.LayoutParams#FLAG_NOT_TOUCH_MODAL} is used; some OEMs still intercept).
+ * Overlay: draggable orange dot + compact menu (live coords, SAVE writes config, CLOSE exits).
+ * Center uses dot size (LayoutParams.width is often 0 before layout).
  */
 public final class AnchorOverlayService extends Service {
     private static final int NOTIF_ID = 11;
 
     private WindowManager wm;
     private View anchor;
-    private TextView saveBtn;
+    private LinearLayout menu;
+    private TextView coordsTv;
     private WindowManager.LayoutParams anchorLp;
-    private WindowManager.LayoutParams saveLp;
+    private WindowManager.LayoutParams menuLp;
     private int dotPx;
 
     public static void start(android.content.Context ctx) {
@@ -73,30 +79,53 @@ public final class AnchorOverlayService extends Service {
         anchorLp.x = Math.round(sx - dotPx / 2f);
         anchorLp.y = Math.round(sy - dotPx / 2f);
 
-        saveBtn = new TextView(this);
-        saveBtn.setText("SET ANCHOR");
-        saveBtn.setTextColor(Color.WHITE);
-        saveBtn.setPadding(dp(20), dp(14), dp(20), dp(14));
-        saveBtn.setBackgroundColor(0xDD1565C0);
-        saveLp =
+        menu = new LinearLayout(this);
+        menu.setOrientation(LinearLayout.VERTICAL);
+        menu.setPadding(dp(12), dp(10), dp(12), dp(10));
+        menu.setBackgroundColor(0xEE1E1E1E);
+
+        TextView title = new TextView(this);
+        title.setTextColor(Color.WHITE);
+        title.setTextSize(14f);
+        title.setText("Retri anchor");
+        menu.addView(title);
+
+        coordsTv = new TextView(this);
+        coordsTv.setTextColor(0xFFB0BEC5);
+        coordsTv.setTextSize(12f);
+        menu.addView(coordsTv);
+
+        Button btnSave = new Button(this);
+        btnSave.setText("SAVE");
+        btnSave.setOnClickListener(v -> doSaveAndExit());
+        menu.addView(btnSave);
+
+        Button btnClose = new Button(this);
+        btnClose.setText("CLOSE");
+        btnClose.setOnClickListener(v -> stopSelf());
+        menu.addView(btnClose);
+
+        menuLp =
                 new WindowManager.LayoutParams(
                         WindowManager.LayoutParams.WRAP_CONTENT,
                         WindowManager.LayoutParams.WRAP_CONTENT,
                         type,
                         flags,
                         PixelFormat.TRANSLUCENT);
-        saveLp.gravity = Gravity.BOTTOM | Gravity.END;
-        saveLp.x = dp(16);
-        saveLp.y = dp(120);
+        menuLp.gravity = Gravity.TOP | Gravity.START;
+        menuLp.x = dp(12);
+        menuLp.y = dp(72);
 
         try {
             wm.addView(anchor, anchorLp);
-            wm.addView(saveBtn, saveLp);
+            wm.addView(menu, menuLp);
         } catch (Throwable t) {
             Toast.makeText(this, "Overlay failed: " + t.getMessage(), Toast.LENGTH_LONG).show();
             stopSelf();
             return;
         }
+
+        refreshCoordsLabel();
 
         anchor.setOnTouchListener(
                 new View.OnTouchListener() {
@@ -120,6 +149,7 @@ public final class AnchorOverlayService extends Service {
                                     wm.updateViewLayout(anchor, anchorLp);
                                 } catch (Throwable ignored) {
                                 }
+                                refreshCoordsLabel();
                                 return true;
                             default:
                                 return false;
@@ -127,29 +157,41 @@ public final class AnchorOverlayService extends Service {
                     }
                 });
 
-        saveBtn.setOnClickListener(
-                v -> {
-                    float cx = anchorLp.x + anchorLp.width / 2f;
-                    float cy = anchorLp.y + anchorLp.height / 2f;
-                    try {
-                        RetriPreferences.saveTapAndSyncConfig(this, cx, cy);
-                        Toast.makeText(
-                                        this,
-                                        String.format(java.util.Locale.US, "Saved tap_x=%.0f tap_y=%.0f", cx, cy),
-                                        Toast.LENGTH_LONG)
-                                .show();
-                    } catch (Throwable t) {
-                        Toast.makeText(this, "Save failed: " + t.getMessage(), Toast.LENGTH_LONG).show();
-                    }
-                    destroyViews();
-                    stopSelf();
-                });
+    }
+
+    private void refreshCoordsLabel() {
+        float cx = anchorLp.x + dotPx / 2f;
+        float cy = anchorLp.y + dotPx / 2f;
+        coordsTv.setText(String.format(Locale.US, "Center: %.0f , %.0f", cx, cy));
+    }
+
+    private void doSaveAndExit() {
+        float cx = anchorLp.x + dotPx / 2f;
+        float cy = anchorLp.y + dotPx / 2f;
+        RetriPreferences.SaveResult r = RetriPreferences.saveTapAndSyncConfig(this, cx, cy);
+        if (r.ok) {
+            Toast.makeText(
+                            this,
+                            String.format(
+                                    Locale.US,
+                                    "Saved → %s",
+                                    new File(r.directory, SharedPaths.CONFIG).getAbsolutePath()),
+                            Toast.LENGTH_LONG)
+                    .show();
+        } else {
+            Toast.makeText(
+                            this,
+                            "Save failed: " + (r.error != null ? r.error : "?") + "\nDir: " + r.directory,
+                            Toast.LENGTH_LONG)
+                    .show();
+        }
+        stopSelf();
     }
 
     private void clampAnchorToScreen() {
         android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
-        int maxX = Math.max(0, dm.widthPixels - anchorLp.width);
-        int maxY = Math.max(0, dm.heightPixels - anchorLp.height);
+        int maxX = Math.max(0, dm.widthPixels - dotPx);
+        int maxY = Math.max(0, dm.heightPixels - dotPx);
         if (anchorLp.x < 0) anchorLp.x = 0;
         if (anchorLp.y < 0) anchorLp.y = 0;
         if (anchorLp.x > maxX) anchorLp.x = maxX;
@@ -163,14 +205,14 @@ public final class AnchorOverlayService extends Service {
 
     private void destroyViews() {
         try {
-            if (saveBtn != null) wm.removeView(saveBtn);
+            if (menu != null) wm.removeView(menu);
         } catch (Throwable ignored) {
         }
         try {
             if (anchor != null) wm.removeView(anchor);
         } catch (Throwable ignored) {
         }
-        saveBtn = null;
+        menu = null;
         anchor = null;
     }
 
@@ -181,8 +223,8 @@ public final class AnchorOverlayService extends Service {
                 new NotificationChannel("ov", "Overlay", NotificationManager.IMPORTANCE_LOW));
         Notification n =
                 new Notification.Builder(this, "ov")
-                        .setContentTitle("Set Retri anchor")
-                        .setContentText("Drag dot, tap SET ANCHOR")
+                        .setContentTitle("Retri anchor overlay")
+                        .setContentText("Drag dot, SAVE")
                         .setSmallIcon(android.R.drawable.ic_menu_mylocation)
                         .build();
         try {

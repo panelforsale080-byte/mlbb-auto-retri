@@ -51,7 +51,7 @@ git push -u origin main
 
 1. Install ESP Pure on the reader device; install **this APK** on the device where you can enable Accessibility (often the host phone).
 2. Enable **MLBB Auto Retri (tap)** in Settings → Accessibility.
-3. **Set anchor (overlay)**: open MLBB (or game screen), tap **Set anchor (overlay on MLBB)** — allow *Display over other apps* if asked — drag the **orange dot** onto your Retribution spell, tap **SET ANCHOR**. Coordinates save + `mlbb_retri_config.txt` updates. Or type `tap_x` / `tap_y` manually and **Save config**.
+3. **Set anchor (overlay)**: open MLBB, tap **Set anchor (overlay on MLBB)** — allow *Display over other apps*. You get a **small dark menu** (live center coords, **SAVE**, **CLOSE**) and an **orange dot**. Drag the dot to the spell, tap **SAVE**. If public Download is not writable on your device, the app falls back to app storage and remembers that folder for the watch service.
 4. Tap **Start watch service** and keep MLBB + ESP Pure running so the state file updates.
 
 **No auto click but state file updates?**
