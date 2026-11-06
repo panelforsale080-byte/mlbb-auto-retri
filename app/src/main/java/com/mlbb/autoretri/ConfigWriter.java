@@ -41,6 +41,7 @@ public final class ConfigWriter {
             pw.println("blue=" + (blue ? 1 : 0));
             pw.println("crab=" + (crab ? 1 : 0));
             pw.println("lito=" + (lito ? 1 : 0));
+            pw.print("\n");
             pw.flush();
             fos.getFD().sync();
         } catch (IOException e) {

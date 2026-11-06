@@ -11,25 +11,50 @@ import android.os.Build;
 import android.os.IBinder;
 import android.util.Log;
 
-import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileReader;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Polls ESP Pure's {@code mlbb_retri_state.txt}; when trigger=1 fires accessibility tap at tap_x/tap_y.
+ * Polls ESP Pure's {@code mlbb_retri_state.txt}; when trigger=1 fires accessibility tap.
+ * Uses tolerant parser for glued/concatenated key=value text.
  */
 public final class RetriWatchService extends Service {
     private static final String TAG = "MlbbAutoRetriWatch";
     private static final long TAP_COOLDOWN_MS = 600;
 
+    private static final Set<String> STATE_KEYS;
+
+    static {
+        HashSet<String> s = new HashSet<>();
+        Collections.addAll(
+                s,
+                "ver",
+                "seq",
+                "ts",
+                "ready",
+                "trigger",
+                "tap_x",
+                "tap_y",
+                "retri_dmg",
+                "best_hp",
+                "best_id",
+                "best_dist",
+                "my_level");
+        STATE_KEYS = Collections.unmodifiableSet(s);
+    }
+
     private final AtomicBoolean running = new AtomicBoolean(false);
     private Thread worker;
     private long lastTapMono = 0;
     private long lastNoStateLog = 0;
-    /** Rising edge: only tap when trigger goes 0 -> 1 (ESP holds trigger=1 many ticks with new seq each time). */
     private boolean prevTriggerHigh = false;
+    /** Last seq we successfully tapped (while trigger may stay 1 with new seq each tick). */
+    private long lastTappedSeq = -1;
 
     public static void start(Context ctx) {
         Intent i = new Intent(ctx, RetriWatchService.class);
@@ -86,6 +111,22 @@ public final class RetriWatchService extends Service {
         return RetriPreferences.prefs(this).getBoolean(RetriPreferences.PREF_MASTER, true);
     }
 
+    private static long parseLong(Map<String, String> m, String k, long def) {
+        String v = m.get(k);
+        if (v == null) return def;
+        v = v.trim();
+        int end = 0;
+        while (end < v.length() && (Character.isDigit(v.charAt(end)) || v.charAt(end) == '-')) {
+            end++;
+        }
+        if (end == 0) return def;
+        try {
+            return Long.parseLong(v.substring(0, end));
+        } catch (Throwable e) {
+            return def;
+        }
+    }
+
     private void loop() {
         while (running.get()) {
             try {
@@ -107,82 +148,92 @@ public final class RetriWatchService extends Service {
                     }
                     continue;
                 }
-                long trig = -1;
-                long seq = -1;
-                long ts = -1;
-                double stateTapX = 0, stateTapY = 0;
-                try (BufferedReader br = new BufferedReader(new FileReader(state))) {
-                    String line;
-                    while ((line = br.readLine()) != null) {
-                        int eq = line.indexOf('=');
-                        if (eq <= 0) continue;
-                        String k = line.substring(0, eq).trim();
-                        String v = line.substring(eq + 1).trim();
-                        switch (k) {
-                            case "seq":
-                                seq = Long.parseLong(v);
-                                break;
-                            case "trigger":
-                                trig = Long.parseLong(v);
-                                break;
-                            case "ts":
-                                ts = Long.parseLong(v);
-                                break;
-                            case "tap_x":
-                                stateTapX = Double.parseDouble(v);
-                                break;
-                            case "tap_y":
-                                stateTapY = Double.parseDouble(v);
-                                break;
-                            default:
-                                break;
-                        }
-                    }
-                }
-                /* Gesture coords: prefer mlbb_retri_config.txt (set anchor / Save on this device).
-                   State file tap_* can lag or differ if ESP Pure uses another folder. */
-                ConfigReader.Tap cfgTap = ConfigReader.readTap(dir);
-                if (cfgTap == null) {
-                    Log.e(TAG, "missing " + SharedPaths.CONFIG + " in " + dir.getAbsolutePath() + " — Save in app first");
-                }
-                float tpx = cfgTap != null ? cfgTap.x : (float) stateTapX;
-                float tpy = cfgTap != null ? cfgTap.y : (float) stateTapY;
-                boolean trigHigh = (trig == 1);
-                boolean risingEdge = trigHigh && !prevTriggerHigh;
-                prevTriggerHigh = trigHigh;
 
-                if (!risingEdge) continue;
+                Map<String, String> sm;
+                try {
+                    sm = HandoffParse.parse(state, STATE_KEYS, 131072);
+                } catch (Throwable e) {
+                    Log.e(TAG, "state parse failed " + state.getAbsolutePath(), e);
+                    continue;
+                }
+
+                long seq = parseLong(sm, "seq", -1);
+                long trig = parseLong(sm, "trigger", -1);
+                long ts = parseLong(sm, "ts", -1);
+
+                boolean trigHigh = trig == 1;
+                if (!trigHigh) {
+                    prevTriggerHigh = false;
+                    lastTappedSeq = -1;
+                    continue;
+                }
+
+                boolean risingEdge = trigHigh && !prevTriggerHigh;
+                prevTriggerHigh = true;
+
+                boolean needTap = risingEdge || (seq >= 0 && seq > lastTappedSeq);
+                if (!needTap) continue;
 
                 long now = android.os.SystemClock.uptimeMillis();
                 if (now - lastTapMono < TAP_COOLDOWN_MS) {
-                    Log.d(TAG, "skip tap: cooldown");
+                    Log.d(TAG, "skip tap: cooldown seq=" + seq);
                     continue;
                 }
+
+                ConfigReader.Tap cfgTap = ConfigReader.readTap(dir);
+                if (cfgTap == null) {
+                    Log.e(TAG, "missing/bad " + SharedPaths.CONFIG + " in " + dir.getAbsolutePath());
+                    continue;
+                }
+
+                double stx = 0, sty = 0;
+                try {
+                    String xs = sm.get("tap_x");
+                    String ys = sm.get("tap_y");
+                    if (xs != null) stx = Double.parseDouble(xs.trim());
+                    if (ys != null) sty = Double.parseDouble(ys.trim());
+                } catch (Throwable ignored) {
+                }
+                float tpx = cfgTap.x;
+                float tpy = cfgTap.y;
+
                 if (!RetriAccessibilityService.ready()) {
                     Log.w(
                             TAG,
-                            "trigger=1 but Accessibility not ready — enable 'MLBB Auto Retri (tap)' in Settings");
-                    /* Do not consume edge; drop prev so next poll can retry after user enables a11y. */
+                            "trigger=1 seq="
+                                    + seq
+                                    + " but Accessibility not ready — enable 'MLBB Auto Retri (tap)'");
                     prevTriggerHigh = false;
                     continue;
                 }
-                float x = tpx;
-                float y = tpy;
-                if (RetriAccessibilityService.dispatchTap(x, y)) {
+
+                Log.d(
+                        TAG,
+                        String.format(
+                                Locale.US,
+                                "tap attempt seq=%d rising=%b cfg=(%.1f,%.1f) state tap=(%.1f,%.1f) ts=%d",
+                                seq,
+                                risingEdge,
+                                tpx,
+                                tpy,
+                                stx,
+                                sty,
+                                ts));
+
+                if (RetriAccessibilityService.dispatchTap(tpx, tpy)) {
                     lastTapMono = now;
+                    lastTappedSeq = seq;
                     Log.i(
                             TAG,
                             String.format(
                                     Locale.US,
-                                    "tap ok seq=%d %.1f %.1f ts=%d (cfg=%b)",
+                                    "tap ok seq=%d %.1f %.1f ts=%d",
                                     seq,
-                                    x,
-                                    y,
-                                    ts,
-                                    cfgTap != null));
+                                    tpx,
+                                    tpy,
+                                    ts));
                 } else {
-                    Log.w(TAG, "dispatchGesture failed — retry next trigger edge");
-                    prevTriggerHigh = false;
+                    Log.w(TAG, "dispatchGesture failed seq=" + seq + " — retry");
                 }
             } catch (InterruptedException e) {
                 break;

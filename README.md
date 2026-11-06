@@ -61,6 +61,7 @@ git push -u origin main
 - Watch uses **`trigger` rising edge** (0 → 1): one tap per objective window; if the service starts while the file already shows `trigger=1`, force `trigger=0` once (leave range) or restart watch after ESP writes `trigger=0`.
 - **Accessibility** must show the service **On**; check `adb logcat -s MlbbAutoRetriWatch RetriAccessibilityService` for `tap ok` vs warnings.
 - **Same folder** as ESP Pure: set optional path in the app if virtual vs host paths differ (config + state must live in the **same** dir the watch reads).
+- **Two separate files** — `mlbb_retri_state.txt` (ESP) and `mlbb_retri_config.txt` (Auto Retri). Do **not** paste them into one file; the app tolerates some glued key=value lines inside a file but you still need **both** files in the folder.
 
 **Debug logs (save / path / watch):**
 

@@ -2,13 +2,23 @@ package com.mlbb.autoretri;
 
 import android.util.Log;
 
-import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileReader;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
 
 /** Reads tap_x/tap_y from mlbb_retri_config.txt (saved by this app — use for gestures). */
 public final class ConfigReader {
     private static final String TAG = "MlbbAutoRetriFile";
+    private static final Set<String> KEYS;
+
+    static {
+        HashSet<String> s = new HashSet<>();
+        s.add("tap_x");
+        s.add("tap_y");
+        KEYS = Collections.unmodifiableSet(s);
+    }
 
     private ConfigReader() {}
 
@@ -29,26 +39,18 @@ public final class ConfigReader {
             Log.w(TAG, "no config file: " + f.getAbsolutePath());
             return null;
         }
-        float x = Float.NaN;
-        float y = Float.NaN;
-        try (BufferedReader br = new BufferedReader(new FileReader(f))) {
-            String line;
-            while ((line = br.readLine()) != null) {
-                int eq = line.indexOf('=');
-                if (eq <= 0) continue;
-                String k = line.substring(0, eq).trim();
-                String v = line.substring(eq + 1).trim();
-                if ("tap_x".equals(k)) x = Float.parseFloat(v);
-                else if ("tap_y".equals(k)) y = Float.parseFloat(v);
+        try {
+            Map<String, String> m = HandoffParse.parse(f, KEYS, 65536);
+            String sx = m.get("tap_x");
+            String sy = m.get("tap_y");
+            if (sx == null || sy == null) {
+                Log.w(TAG, "config missing tap_x/tap_y (tolerant parse): " + f.getAbsolutePath());
+                return null;
             }
+            return new Tap(Float.parseFloat(sx.trim()), Float.parseFloat(sy.trim()));
         } catch (Throwable e) {
-            Log.e(TAG, "readTap parse failed: " + f.getAbsolutePath(), e);
+            Log.e(TAG, "readTap failed: " + f.getAbsolutePath(), e);
             return null;
         }
-        if (Float.isNaN(x) || Float.isNaN(y)) {
-            Log.w(TAG, "readTap missing tap_x/tap_y in " + f.getAbsolutePath());
-            return null;
-        }
-        return new Tap(x, y);
     }
 }
