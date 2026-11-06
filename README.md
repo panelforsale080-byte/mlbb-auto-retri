@@ -56,6 +56,8 @@ git push -u origin main
 
 **No auto click but state file updates?**
 
+- Taps use **`tap_x` / `tap_y` from `mlbb_retri_config.txt`** (Set anchor / Save). The state file’s tap_* can lag until ESP reloads config — do not rely on state for tap position on this device.
+- Use **Test tap** after enabling Accessibility: if that fails, fix a11y / battery restrictions first.
 - Watch uses **`trigger` rising edge** (0 → 1): one tap per objective window; if the service starts while the file already shows `trigger=1`, force `trigger=0` once (leave range) or restart watch after ESP writes `trigger=0`.
 - **Accessibility** must show the service **On**; check `adb logcat -s MlbbAutoRetriWatch RetriAccessibilityService` for `tap ok` vs warnings.
-- **Same folder** as ESP Pure: set optional path in the app if virtual vs host paths differ.
+- **Same folder** as ESP Pure: set optional path in the app if virtual vs host paths differ (config + state must live in the **same** dir the watch reads).

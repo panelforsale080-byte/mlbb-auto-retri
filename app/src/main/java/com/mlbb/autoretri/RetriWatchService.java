@@ -96,7 +96,7 @@ public final class RetriWatchService extends Service {
                 long trig = -1;
                 long seq = -1;
                 long ts = -1;
-                double tpx = 0, tpy = 0;
+                double stateTapX = 0, stateTapY = 0;
                 try (BufferedReader br = new BufferedReader(new FileReader(state))) {
                     String line;
                     while ((line = br.readLine()) != null) {
@@ -115,16 +115,21 @@ public final class RetriWatchService extends Service {
                                 ts = Long.parseLong(v);
                                 break;
                             case "tap_x":
-                                tpx = Double.parseDouble(v);
+                                stateTapX = Double.parseDouble(v);
                                 break;
                             case "tap_y":
-                                tpy = Double.parseDouble(v);
+                                stateTapY = Double.parseDouble(v);
                                 break;
                             default:
                                 break;
                         }
                     }
                 }
+                /* Gesture coords: prefer mlbb_retri_config.txt (set anchor / Save on this device).
+                   State file tap_* can lag or differ if ESP Pure uses another folder. */
+                ConfigReader.Tap cfgTap = ConfigReader.readTap(dir);
+                float tpx = cfgTap != null ? cfgTap.x : (float) stateTapX;
+                float tpy = cfgTap != null ? cfgTap.y : (float) stateTapY;
                 boolean trigHigh = (trig == 1);
                 boolean risingEdge = trigHigh && !prevTriggerHigh;
                 prevTriggerHigh = trigHigh;
@@ -144,13 +149,20 @@ public final class RetriWatchService extends Service {
                     prevTriggerHigh = false;
                     continue;
                 }
-                float x = (float) tpx;
-                float y = (float) tpy;
+                float x = tpx;
+                float y = tpy;
                 if (RetriAccessibilityService.dispatchTap(x, y)) {
                     lastTapMono = now;
                     Log.i(
                             TAG,
-                            String.format(Locale.US, "tap ok seq=%d %.1f %.1f ts=%d", seq, x, y, ts));
+                            String.format(
+                                    Locale.US,
+                                    "tap ok seq=%d %.1f %.1f ts=%d (cfg=%b)",
+                                    seq,
+                                    x,
+                                    y,
+                                    ts,
+                                    cfgTap != null));
                 } else {
                     Log.w(TAG, "dispatchGesture failed — retry next trigger edge");
                     prevTriggerHigh = false;

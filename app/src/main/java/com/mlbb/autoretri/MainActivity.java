@@ -86,6 +86,33 @@ public class MainActivity extends Activity {
         overlayAnchor.setOnClickListener(v -> tryStartAnchorOverlay());
         shell.addView(overlayAnchor);
 
+        Button testTap = new Button(this);
+        testTap.setText("Test tap (same coords as anchor)");
+        testTap.setOnClickListener(
+                v -> {
+                    if (!RetriAccessibilityService.ready()) {
+                        Toast.makeText(
+                                        this,
+                                        "Enable MLBB Auto Retri (tap) in Accessibility first",
+                                        Toast.LENGTH_LONG)
+                                .show();
+                        return;
+                    }
+                    try {
+                        float tx = Float.parseFloat(tapXEdit.getText().toString().trim());
+                        float ty = Float.parseFloat(tapYEdit.getText().toString().trim());
+                        boolean ok = RetriAccessibilityService.dispatchTap(tx, ty);
+                        Toast.makeText(
+                                        this,
+                                        ok ? ("Tap sent at " + tx + ", " + ty) : "dispatchGesture failed",
+                                        Toast.LENGTH_LONG)
+                                .show();
+                    } catch (Throwable t) {
+                        Toast.makeText(this, "Invalid tap_x/tap_y", Toast.LENGTH_SHORT).show();
+                    }
+                });
+        shell.addView(testTap);
+
         Button a11y = new Button(this);
         a11y.setText("Open Accessibility (enable tap service)");
         a11y.setOnClickListener(
