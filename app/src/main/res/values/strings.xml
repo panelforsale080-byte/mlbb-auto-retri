@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="accessibility_desc">Allows MLBB Auto Retri to tap the Retribution spell when ESP Pure reports trigger=1 in the shared file.</string>
+</resources>

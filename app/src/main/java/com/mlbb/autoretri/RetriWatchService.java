@@ -1,0 +1,171 @@
+package com.mlbb.autoretri;
+
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.Service;
+import android.content.Context;
+import android.content.Intent;
+import android.content.SharedPreferences;
+import android.content.pm.ServiceInfo;
+import android.os.Build;
+import android.os.IBinder;
+import android.util.Log;
+
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileReader;
+import java.util.Locale;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+/**
+ * Polls ESP Pure's {@code mlbb_retri_state.txt}; when trigger=1 fires accessibility tap at tap_x/tap_y.
+ */
+public final class RetriWatchService extends Service {
+    private static final String TAG = "MlbbAutoRetriWatch";
+    private static final String PREFS = "autoretri";
+    private static final String PREF_PATH = "shared_dir_override";
+    private static final String PREF_MASTER = "master_enable";
+    private static final long TAP_COOLDOWN_MS = 600;
+
+    private final AtomicBoolean running = new AtomicBoolean(false);
+    private Thread worker;
+    private long lastTapMono = 0;
+    private long lastSeenSeq = -1;
+
+    public static void start(Context ctx) {
+        Intent i = new Intent(ctx, RetriWatchService.class);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) ctx.startForegroundService(i);
+        else ctx.startService(i);
+    }
+
+    public static void stop(Context ctx) {
+        ctx.stopService(new Intent(ctx, RetriWatchService.class));
+    }
+
+    @Override
+    public void onCreate() {
+        super.onCreate();
+        startFg();
+    }
+
+    @Override
+    public int onStartCommand(Intent intent, int flags, int startId) {
+        if (worker == null || !worker.isAlive()) {
+            running.set(true);
+            worker = new Thread(this::loop, "retri-watch");
+            worker.start();
+        }
+        return START_STICKY;
+    }
+
+    private void startFg() {
+        NotificationManager nm = getSystemService(NotificationManager.class);
+        if (Build.VERSION.SDK_INT >= 26) {
+            nm.createNotificationChannel(
+                    new NotificationChannel("ar", "Auto Retri", NotificationManager.IMPORTANCE_LOW));
+            Notification n =
+                    new Notification.Builder(this, "ar")
+                            .setContentTitle("MLBB Auto Retri")
+                            .setContentText("Watching state file")
+                            .setSmallIcon(android.R.drawable.ic_media_play)
+                            .build();
+            try {
+                if (Build.VERSION.SDK_INT >= 34) {
+                    startForeground(9, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE);
+                } else startForeground(9, n);
+            } catch (Throwable t) {
+                startForeground(9, n);
+            }
+        }
+    }
+
+    private File resolveDir() {
+        SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
+        String o = p.getString(PREF_PATH, "").trim();
+        if (!o.isEmpty()) {
+            File f = new File(o);
+            if (f.isDirectory() || f.mkdirs()) return f;
+        }
+        return SharedPaths.resolveSharedDir(this);
+    }
+
+    private boolean masterEnabled() {
+        return getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(PREF_MASTER, true);
+    }
+
+    private void loop() {
+        while (running.get()) {
+            try {
+                Thread.sleep(16);
+                if (!masterEnabled()) continue;
+                File dir = resolveDir();
+                File state = new File(dir, SharedPaths.STATE);
+                if (!state.isFile()) continue;
+                long trig = -1;
+                long seq = -1;
+                long ts = -1;
+                double tpx = 0, tpy = 0;
+                try (BufferedReader br = new BufferedReader(new FileReader(state))) {
+                    String line;
+                    while ((line = br.readLine()) != null) {
+                        int eq = line.indexOf('=');
+                        if (eq <= 0) continue;
+                        String k = line.substring(0, eq).trim();
+                        String v = line.substring(eq + 1).trim();
+                        switch (k) {
+                            case "seq":
+                                seq = Long.parseLong(v);
+                                break;
+                            case "trigger":
+                                trig = Long.parseLong(v);
+                                break;
+                            case "ts":
+                                ts = Long.parseLong(v);
+                                break;
+                            case "tap_x":
+                                tpx = Double.parseDouble(v);
+                                break;
+                            case "tap_y":
+                                tpy = Double.parseDouble(v);
+                                break;
+                            default:
+                                break;
+                        }
+                    }
+                }
+                if (trig != 1 || seq < 0) continue;
+                if (seq == lastSeenSeq) continue;
+                lastSeenSeq = seq;
+                long now = android.os.SystemClock.uptimeMillis();
+                if (now - lastTapMono < TAP_COOLDOWN_MS) continue;
+                if (!RetriAccessibilityService.ready()) {
+                    Log.w(TAG, "Accessibility off — open Settings and enable MLBB Auto Retri");
+                    continue;
+                }
+                float x = (float) tpx;
+                float y = (float) tpy;
+                if (RetriAccessibilityService.dispatchTap(x, y)) {
+                    lastTapMono = now;
+                    Log.i(TAG, String.format(Locale.US, "tap %.1f %.1f ts=%d", x, y, ts));
+                }
+            } catch (InterruptedException e) {
+                break;
+            } catch (Throwable t) {
+                Log.e(TAG, "loop", t);
+            }
+        }
+    }
+
+    @Override
+    public void onDestroy() {
+        running.set(false);
+        if (worker != null) worker.interrupt();
+        super.onDestroy();
+    }
+
+    @Override
+    public IBinder onBind(Intent intent) {
+        return null;
+    }
+}
