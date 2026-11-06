@@ -6,7 +6,6 @@ import android.app.NotificationManager;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
-import android.content.SharedPreferences;
 import android.content.pm.ServiceInfo;
 import android.os.Build;
 import android.os.IBinder;
@@ -23,9 +22,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 public final class RetriWatchService extends Service {
     private static final String TAG = "MlbbAutoRetriWatch";
-    private static final String PREFS = "autoretri";
-    private static final String PREF_PATH = "shared_dir_override";
-    private static final String PREF_MASTER = "master_enable";
     private static final long TAP_COOLDOWN_MS = 600;
 
     private final AtomicBoolean running = new AtomicBoolean(false);
@@ -82,17 +78,11 @@ public final class RetriWatchService extends Service {
     }
 
     private File resolveDir() {
-        SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
-        String o = p.getString(PREF_PATH, "").trim();
-        if (!o.isEmpty()) {
-            File f = new File(o);
-            if (f.isDirectory() || f.mkdirs()) return f;
-        }
-        return SharedPaths.resolveSharedDir(this);
+        return RetriPreferences.resolveConfigDir(this);
     }
 
     private boolean masterEnabled() {
-        return getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(PREF_MASTER, true);
+        return RetriPreferences.prefs(this).getBoolean(RetriPreferences.PREF_MASTER, true);
     }
 
     private void loop() {

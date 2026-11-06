@@ -5,6 +5,7 @@ import android.app.Activity;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
@@ -21,18 +22,6 @@ import android.widget.Toast;
 import java.io.File;
 
 public class MainActivity extends Activity {
-    private static final String PREFS = "autoretri";
-    private static final String PREF_PATH = "shared_dir_override";
-    private static final String PREF_MASTER = "master_enable";
-    private static final String PREF_TAP_X = "tap_x";
-    private static final String PREF_TAP_Y = "tap_y";
-    private static final String PREF_LORD = "t_lord";
-    private static final String PREF_TURTLE = "t_turtle";
-    private static final String PREF_RED = "t_red";
-    private static final String PREF_BLUE = "t_blue";
-    private static final String PREF_CRAB = "t_crab";
-    private static final String PREF_LITO = "t_lito";
-
     private static final int REQ_NOTIF = 2001;
 
     private EditText pathEdit;
@@ -40,6 +29,7 @@ public class MainActivity extends Activity {
     private EditText tapYEdit;
     private Switch masterSw;
     private CheckBox ckLord, ckTurtle, ckRed, ckBlue, ckCrab, ckLito;
+    private boolean pendingAnchorOverlay = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -53,7 +43,7 @@ public class MainActivity extends Activity {
 
         TextView title = new TextView(this);
         title.setTextSize(18f);
-        title.setText("MLBB Auto Retri (standalone)\nReads mlbb_retri_state.txt from ESP Pure, taps spell via Accessibility.");
+        title.setText("MLBB Auto Retri\nReads ESP Pure state file; taps spell via Accessibility.");
         shell.addView(title);
 
         TextView dirHint = new TextView(this);
@@ -91,6 +81,11 @@ public class MainActivity extends Activity {
         save.setOnClickListener(v -> saveAll());
         shell.addView(save);
 
+        Button overlayAnchor = new Button(this);
+        overlayAnchor.setText("Set anchor (overlay on MLBB)");
+        overlayAnchor.setOnClickListener(v -> tryStartAnchorOverlay());
+        shell.addView(overlayAnchor);
+
         Button a11y = new Button(this);
         a11y.setText("Open Accessibility (enable tap service)");
         a11y.setOnClickListener(
@@ -99,10 +94,14 @@ public class MainActivity extends Activity {
 
         Button start = new Button(this);
         start.setText("Start watch service");
-        start.setOnClickListener(v -> {
-            ensureNotifThen(() -> RetriWatchService.start(this));
-            Toast.makeText(this, "Watch service started", Toast.LENGTH_SHORT).show();
-        });
+        start.setOnClickListener(
+                v -> {
+                    ensureNotifThen(
+                            () -> {
+                                RetriWatchService.start(this);
+                                Toast.makeText(this, "Watch service started", Toast.LENGTH_SHORT).show();
+                            });
+                });
         shell.addView(start);
 
         File defDir = SharedPaths.resolveSharedDir(this);
@@ -110,6 +109,38 @@ public class MainActivity extends Activity {
 
         loadPrefs();
         setContentView(scroll);
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (pendingAnchorOverlay && canOverlay()) {
+            pendingAnchorOverlay = false;
+            AnchorOverlayService.start(this);
+            Toast.makeText(this, "Drag orange dot to spell → SET ANCHOR", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private boolean canOverlay() {
+        return Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(this);
+    }
+
+    private void tryStartAnchorOverlay() {
+        if (!canOverlay()) {
+            pendingAnchorOverlay = true;
+            try {
+                startActivity(
+                        new Intent(
+                                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                Uri.parse("package:" + getPackageName())));
+            } catch (Throwable t) {
+                Toast.makeText(this, "Allow display over other apps for this app", Toast.LENGTH_LONG).show();
+            }
+            Toast.makeText(this, "Grant overlay permission, then try again", Toast.LENGTH_LONG).show();
+            return;
+        }
+        AnchorOverlayService.start(this);
+        Toast.makeText(this, "Drag orange dot to spell → SET ANCHOR", Toast.LENGTH_LONG).show();
     }
 
     private CheckBox mkCk(String label, LinearLayout shell) {
@@ -120,38 +151,38 @@ public class MainActivity extends Activity {
     }
 
     private void loadPrefs() {
-        SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
-        pathEdit.setText(p.getString(PREF_PATH, ""));
-        tapXEdit.setText(String.valueOf(p.getFloat(PREF_TAP_X, 1575f)));
-        tapYEdit.setText(String.valueOf(p.getFloat(PREF_TAP_Y, 661f)));
-        masterSw.setChecked(p.getBoolean(PREF_MASTER, true));
-        ckLord.setChecked(p.getBoolean(PREF_LORD, true));
-        ckTurtle.setChecked(p.getBoolean(PREF_TURTLE, true));
-        ckRed.setChecked(p.getBoolean(PREF_RED, true));
-        ckBlue.setChecked(p.getBoolean(PREF_BLUE, true));
-        ckCrab.setChecked(p.getBoolean(PREF_CRAB, true));
-        ckLito.setChecked(p.getBoolean(PREF_LITO, true));
+        SharedPreferences p = RetriPreferences.prefs(this);
+        pathEdit.setText(p.getString(RetriPreferences.PREF_PATH, ""));
+        tapXEdit.setText(String.valueOf(p.getFloat(RetriPreferences.PREF_TAP_X, 1575f)));
+        tapYEdit.setText(String.valueOf(p.getFloat(RetriPreferences.PREF_TAP_Y, 661f)));
+        masterSw.setChecked(p.getBoolean(RetriPreferences.PREF_MASTER, true));
+        ckLord.setChecked(p.getBoolean(RetriPreferences.PREF_LORD, true));
+        ckTurtle.setChecked(p.getBoolean(RetriPreferences.PREF_TURTLE, true));
+        ckRed.setChecked(p.getBoolean(RetriPreferences.PREF_RED, true));
+        ckBlue.setChecked(p.getBoolean(RetriPreferences.PREF_BLUE, true));
+        ckCrab.setChecked(p.getBoolean(RetriPreferences.PREF_CRAB, true));
+        ckLito.setChecked(p.getBoolean(RetriPreferences.PREF_LITO, true));
     }
 
     private void saveAll() {
         try {
-            SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
+            SharedPreferences p = RetriPreferences.prefs(this);
             float tx = Float.parseFloat(tapXEdit.getText().toString().trim());
             float ty = Float.parseFloat(tapYEdit.getText().toString().trim());
             p.edit()
-                    .putString(PREF_PATH, pathEdit.getText().toString().trim())
-                    .putBoolean(PREF_MASTER, masterSw.isChecked())
-                    .putFloat(PREF_TAP_X, tx)
-                    .putFloat(PREF_TAP_Y, ty)
-                    .putBoolean(PREF_LORD, ckLord.isChecked())
-                    .putBoolean(PREF_TURTLE, ckTurtle.isChecked())
-                    .putBoolean(PREF_RED, ckRed.isChecked())
-                    .putBoolean(PREF_BLUE, ckBlue.isChecked())
-                    .putBoolean(PREF_CRAB, ckCrab.isChecked())
-                    .putBoolean(PREF_LITO, ckLito.isChecked())
+                    .putString(RetriPreferences.PREF_PATH, pathEdit.getText().toString().trim())
+                    .putBoolean(RetriPreferences.PREF_MASTER, masterSw.isChecked())
+                    .putFloat(RetriPreferences.PREF_TAP_X, tx)
+                    .putFloat(RetriPreferences.PREF_TAP_Y, ty)
+                    .putBoolean(RetriPreferences.PREF_LORD, ckLord.isChecked())
+                    .putBoolean(RetriPreferences.PREF_TURTLE, ckTurtle.isChecked())
+                    .putBoolean(RetriPreferences.PREF_RED, ckRed.isChecked())
+                    .putBoolean(RetriPreferences.PREF_BLUE, ckBlue.isChecked())
+                    .putBoolean(RetriPreferences.PREF_CRAB, ckCrab.isChecked())
+                    .putBoolean(RetriPreferences.PREF_LITO, ckLito.isChecked())
                     .apply();
 
-            File dir = resolveDirFromPrefs();
+            File dir = RetriPreferences.resolveConfigDir(this);
             ConfigWriter.write(
                     dir,
                     tx,
@@ -162,21 +193,13 @@ public class MainActivity extends Activity {
                     ckBlue.isChecked(),
                     ckCrab.isChecked(),
                     ckLito.isChecked());
+            tapXEdit.setText(String.valueOf(tx));
+            tapYEdit.setText(String.valueOf(ty));
             Toast.makeText(this, "Saved → " + new File(dir, SharedPaths.CONFIG).getAbsolutePath(), Toast.LENGTH_LONG)
                     .show();
         } catch (Throwable t) {
             Toast.makeText(this, "Save failed: " + t.getMessage(), Toast.LENGTH_LONG).show();
         }
-    }
-
-    private File resolveDirFromPrefs() {
-        SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
-        String o = p.getString(PREF_PATH, "").trim();
-        if (!o.isEmpty()) {
-            File f = new File(o);
-            if (f.isDirectory() || f.mkdirs()) return f;
-        }
-        return SharedPaths.resolveSharedDir(this);
     }
 
     private void ensureNotifThen(Runnable r) {
