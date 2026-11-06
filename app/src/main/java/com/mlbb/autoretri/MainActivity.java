@@ -114,6 +114,8 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        /* Reload after overlay saved tap_x/tap_y */
+        loadPrefs();
         if (pendingAnchorOverlay && canOverlay()) {
             pendingAnchorOverlay = false;
             AnchorOverlayService.start(this);
