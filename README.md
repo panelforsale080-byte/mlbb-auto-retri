@@ -53,3 +53,9 @@ git push -u origin main
 2. Enable **MLBB Auto Retri (tap)** in Settings → Accessibility.
 3. Set `tap_x` / `tap_y` and targets; tap **Save config**.
 4. Tap **Start watch service** and keep MLBB + ESP Pure running so the state file updates.
+
+**No auto click but state file updates?**
+
+- Watch uses **`trigger` rising edge** (0 → 1): one tap per objective window; if the service starts while the file already shows `trigger=1`, force `trigger=0` once (leave range) or restart watch after ESP writes `trigger=0`.
+- **Accessibility** must show the service **On**; check `adb logcat -s MlbbAutoRetriWatch RetriAccessibilityService` for `tap ok` vs warnings.
+- **Same folder** as ESP Pure: set optional path in the app if virtual vs host paths differ.
