@@ -31,7 +31,8 @@ public final class RetriWatchService extends Service {
     private final AtomicBoolean running = new AtomicBoolean(false);
     private Thread worker;
     private long lastTapMono = 0;
-    private long lastSeenSeq = -1;
+    /** Rising edge: only tap when trigger goes 0 -> 1 (ESP holds trigger=1 many ticks with new seq each time). */
+    private boolean prevTriggerHigh = false;
 
     public static void start(Context ctx) {
         Intent i = new Intent(ctx, RetriWatchService.class);
@@ -134,20 +135,35 @@ public final class RetriWatchService extends Service {
                         }
                     }
                 }
-                if (trig != 1 || seq < 0) continue;
-                if (seq == lastSeenSeq) continue;
-                lastSeenSeq = seq;
+                boolean trigHigh = (trig == 1);
+                boolean risingEdge = trigHigh && !prevTriggerHigh;
+                prevTriggerHigh = trigHigh;
+
+                if (!risingEdge) continue;
+
                 long now = android.os.SystemClock.uptimeMillis();
-                if (now - lastTapMono < TAP_COOLDOWN_MS) continue;
+                if (now - lastTapMono < TAP_COOLDOWN_MS) {
+                    Log.d(TAG, "skip tap: cooldown");
+                    continue;
+                }
                 if (!RetriAccessibilityService.ready()) {
-                    Log.w(TAG, "Accessibility off — open Settings and enable MLBB Auto Retri");
+                    Log.w(
+                            TAG,
+                            "trigger=1 but Accessibility not ready — enable 'MLBB Auto Retri (tap)' in Settings");
+                    /* Do not consume edge; drop prev so next poll can retry after user enables a11y. */
+                    prevTriggerHigh = false;
                     continue;
                 }
                 float x = (float) tpx;
                 float y = (float) tpy;
                 if (RetriAccessibilityService.dispatchTap(x, y)) {
                     lastTapMono = now;
-                    Log.i(TAG, String.format(Locale.US, "tap %.1f %.1f ts=%d", x, y, ts));
+                    Log.i(
+                            TAG,
+                            String.format(Locale.US, "tap ok seq=%d %.1f %.1f ts=%d", seq, x, y, ts));
+                } else {
+                    Log.w(TAG, "dispatchGesture failed — retry next trigger edge");
+                    prevTriggerHigh = false;
                 }
             } catch (InterruptedException e) {
                 break;
