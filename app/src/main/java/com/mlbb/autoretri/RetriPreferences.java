@@ -2,11 +2,15 @@ package com.mlbb.autoretri;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.util.Log;
 
 import java.io.File;
+import java.io.IOException;
 
 /** Shared prefs keys for Auto Retri (MainActivity + AnchorOverlayService). */
 public final class RetriPreferences {
+    private static final String TAG = "MlbbAutoRetriPrefs";
+
     static final String PREFS = "autoretri";
     static final String PREF_PATH = "shared_dir_override";
     static final String PREF_MASTER = "master_enable";
@@ -87,21 +91,46 @@ public final class RetriPreferences {
                     p.getBoolean(PREF_CRAB, true),
                     p.getBoolean(PREF_LITO, true));
             p.edit().putString(PREF_LAST_WRITE_DIR, dir.getAbsolutePath()).apply();
+            File stateProbe = new File(dir, SharedPaths.STATE);
+            if (!stateProbe.isFile()) {
+                Log.w(
+                        TAG,
+                        "config OK but no "
+                                + SharedPaths.STATE
+                                + " in same folder yet — ESP Pure must use this path:\n"
+                                + dir.getAbsolutePath());
+            } else {
+                Log.i(TAG, "handoff OK: state+config in " + dir.getAbsolutePath());
+            }
+            Log.i(
+                    TAG,
+                    "saved last_write_dir="
+                            + dir.getAbsolutePath()
+                            + " config="
+                            + new File(dir, SharedPaths.CONFIG).getAbsolutePath());
             return new SaveResult(true, dir, null);
         } catch (Throwable t) {
-            return new SaveResult(false, dir, t.getMessage() != null ? t.getMessage() : t.toString());
+            String msg = t instanceof IOException ? t.getMessage() : String.valueOf(t.getMessage());
+            Log.e(TAG, "writeConfig failed dir=" + dir.getAbsolutePath(), t);
+            return new SaveResult(false, dir, msg != null ? msg : t.toString());
         }
     }
 
-    /** Where watch service + ConfigReader should look first. */
+    /** Where watch service + ConfigReader should look first (must match ESP for auto click). */
     public static File effectiveHandoffDir(Context ctx) {
         SharedPreferences p = prefs(ctx);
         String last = p.getString(PREF_LAST_WRITE_DIR, "").trim();
         if (!last.isEmpty()) {
             File f = new File(last);
-            if (f.isDirectory()) return f;
+            if (f.isDirectory()) {
+                Log.d(TAG, "effectiveHandoffDir: last_write_dir " + f.getAbsolutePath());
+                return f;
+            }
+            Log.w(TAG, "last_write_dir missing or not dir: " + last);
         }
-        return StorageUtil.ensureWritableConfigDir(ctx);
+        File d = StorageUtil.ensureWritableConfigDir(ctx);
+        Log.i(TAG, "effectiveHandoffDir (no last): " + d.getAbsolutePath());
+        return d;
     }
 
     public static final class SaveResult {

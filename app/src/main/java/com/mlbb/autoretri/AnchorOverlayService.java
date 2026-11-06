@@ -170,18 +170,25 @@ public final class AnchorOverlayService extends Service {
         float cy = anchorLp.y + dotPx / 2f;
         RetriPreferences.SaveResult r = RetriPreferences.saveTapAndSyncConfig(this, cx, cy);
         if (r.ok) {
+            File cfg = new File(r.directory, SharedPaths.CONFIG);
+            File st = new File(r.directory, SharedPaths.STATE);
+            String extra =
+                    st.isFile()
+                            ? ""
+                            : "\n(No state file yet — point ESP Pure to:\n" + r.directory.getAbsolutePath() + ")";
             Toast.makeText(
                             this,
-                            String.format(
-                                    Locale.US,
-                                    "Saved → %s",
-                                    new File(r.directory, SharedPaths.CONFIG).getAbsolutePath()),
+                            String.format(Locale.US, "Saved → %s%s", cfg.getAbsolutePath(), extra),
                             Toast.LENGTH_LONG)
                     .show();
         } else {
             Toast.makeText(
                             this,
-                            "Save failed: " + (r.error != null ? r.error : "?") + "\nDir: " + r.directory,
+                            "Save failed: "
+                                    + (r.error != null ? r.error : "?")
+                                    + "\nTried: "
+                                    + r.directory
+                                    + "\nLogcat: MlbbAutoRetriFile MlbbAutoRetriStorage MlbbAutoRetriPrefs",
                             Toast.LENGTH_LONG)
                     .show();
         }

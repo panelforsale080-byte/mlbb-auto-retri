@@ -221,7 +221,11 @@ public class MainActivity extends Activity {
             } else {
                 Toast.makeText(
                                 this,
-                                "Save failed: " + (r.error != null ? r.error : "?") + "\nTried: " + r.directory,
+                                "Save failed: "
+                                        + (r.error != null ? r.error : "?")
+                                        + "\nTried: "
+                                        + r.directory
+                                        + "\nadb logcat -s MlbbAutoRetriFile MlbbAutoRetriStorage MlbbAutoRetriPrefs MlbbAutoRetriWatch",
                                 Toast.LENGTH_LONG)
                         .show();
             }

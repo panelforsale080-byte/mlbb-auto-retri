@@ -27,6 +27,7 @@ public final class RetriWatchService extends Service {
     private final AtomicBoolean running = new AtomicBoolean(false);
     private Thread worker;
     private long lastTapMono = 0;
+    private long lastNoStateLog = 0;
     /** Rising edge: only tap when trigger goes 0 -> 1 (ESP holds trigger=1 many ticks with new seq each time). */
     private boolean prevTriggerHigh = false;
 
@@ -92,7 +93,20 @@ public final class RetriWatchService extends Service {
                 if (!masterEnabled()) continue;
                 File dir = resolveDir();
                 File state = new File(dir, SharedPaths.STATE);
-                if (!state.isFile()) continue;
+                if (!state.isFile()) {
+                    long nowWall = System.currentTimeMillis();
+                    if (nowWall - lastNoStateLog > 5000) {
+                        lastNoStateLog = nowWall;
+                        Log.w(
+                                TAG,
+                                "no "
+                                        + SharedPaths.STATE
+                                        + " in "
+                                        + dir.getAbsolutePath()
+                                        + " — ESP Pure must use same folder (set nativeSetRetriSharedDir / path).");
+                    }
+                    continue;
+                }
                 long trig = -1;
                 long seq = -1;
                 long ts = -1;
@@ -128,6 +142,9 @@ public final class RetriWatchService extends Service {
                 /* Gesture coords: prefer mlbb_retri_config.txt (set anchor / Save on this device).
                    State file tap_* can lag or differ if ESP Pure uses another folder. */
                 ConfigReader.Tap cfgTap = ConfigReader.readTap(dir);
+                if (cfgTap == null) {
+                    Log.e(TAG, "missing " + SharedPaths.CONFIG + " in " + dir.getAbsolutePath() + " — Save in app first");
+                }
                 float tpx = cfgTap != null ? cfgTap.x : (float) stateTapX;
                 float tpy = cfgTap != null ? cfgTap.y : (float) stateTapY;
                 boolean trigHigh = (trig == 1);
